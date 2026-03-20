@@ -1,0 +1,16 @@
+{
+  "result": [
+    {
+      "name": "message_box",
+      "description": "Display a message box in Fusion 360"
+    },
+    {
+      "name": "create_new_sketch",
+      "description": "Create a new sketch on the specified plane"
+    },
+    {
+      "name": "create_parameter",
+      "description": "Create a new parameter in the active design"
+    }
+  ]
+}

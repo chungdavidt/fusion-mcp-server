@@ -1,0 +1,12 @@
+{
+  "result": [
+    {
+      "name": "create_sketch_prompt",
+      "description": "Create a prompt for creating a sketch based on a description"
+    },
+    {
+      "name": "parameter_setup_prompt",
+      "description": "Create a prompt for setting up parameters based on a description"
+    }
+  ]
+}

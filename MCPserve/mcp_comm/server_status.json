@@ -1,0 +1,21 @@
+{
+  "status": "running",
+  "started_at": "Wed Mar 18 02:03:39 2026",
+  "server_url": "http://127.0.0.1:3000/sse",
+  "fusion_version": "2605.1.39",
+  "addin_root": "/Users/dtc32/Library/CloudStorage/OneDrive-DukeUniversity/Documents/Personal/Coding Projects/claude-fusion/fusion-mcp-server/MCPserve",
+  "available_resources": [
+    "fusion://active-document-info",
+    "fusion://design-structure",
+    "fusion://parameters"
+  ],
+  "available_tools": [
+    "message_box",
+    "create_new_sketch",
+    "create_parameter"
+  ],
+  "available_prompts": [
+    "create_sketch_prompt",
+    "parameter_setup_prompt"
+  ]
+}
