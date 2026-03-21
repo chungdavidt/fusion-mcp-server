@@ -31,6 +31,18 @@ def _get_design_context():
     return design, design.rootComponent
 
 
+def _state_fingerprint():
+    """Quick fingerprint of design state: bodies-sketches-timeline."""
+    try:
+        design, root_comp = _get_design_context()
+        b = root_comp.bRepBodies.count
+        s = root_comp.sketches.count
+        t = design.timeline.markerPosition
+        return f"{b}-{s}-{t}"
+    except Exception:
+        return "unknown"
+
+
 def _get_active_sketch():
     """Return the most recent sketch for drawing operations."""
     _, root_comp = _get_design_context()
@@ -58,11 +70,28 @@ def _get_body(root_comp, body_index=None):
 def register_tools(fusion_mcp):
     """Register all MCP tools on the given FastMCP instance."""
 
+    # Store original tool decorator, wrap it to append state fingerprint
+    _orig_tool = fusion_mcp.tool
+
+    def _tracked_tool(*args, **kwargs):
+        """Decorator that registers a tool AND appends state fingerprint to its output."""
+        import functools
+        decorator = _orig_tool(*args, **kwargs)
+        def wrapper(func):
+            @functools.wraps(func)
+            def with_fp(*a, **kw):
+                result = func(*a, **kw)
+                return f"{result} [state:{_state_fingerprint()}]"
+            return decorator(with_fp)
+        return wrapper
+
+    tool = _tracked_tool  # use this instead of @fusion_mcp.tool()
+
     # ------------------------------------------------------------------
     # Sketch creation (moved from MCPServerCommand.py)
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def create_new_sketch(plane_name: str) -> str:
         """Create a new sketch on the specified plane (XY, XZ, or YZ).
         Also accepts custom construction plane names."""
@@ -99,7 +128,7 @@ def register_tools(fusion_mcp):
     # Parameters (moved from MCPServerCommand.py)
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def create_parameter(name: str, expression: str, unit: str, comment: str = "") -> str:
         """Create a new user parameter in the active design.
         If a parameter with the same name exists, it will be updated."""
@@ -130,7 +159,7 @@ def register_tools(fusion_mcp):
     # Sketch drawing — Phase 1
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def draw_rectangle(x1: float, y1: float, x2: float, y2: float) -> str:
         """Draw a rectangle in the active sketch defined by two opposite corners.
         All dimensions in cm (1 mm = 0.1 cm)."""
@@ -145,7 +174,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error drawing rectangle: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def draw_circle(center_x: float, center_y: float, radius: float) -> str:
         """Draw a circle in the active sketch.
         All dimensions in cm (1 mm = 0.1 cm)."""
@@ -159,7 +188,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error drawing circle: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def draw_line(x1: float, y1: float, x2: float, y2: float) -> str:
         """Draw a straight line in the active sketch.
         All dimensions in cm (1 mm = 0.1 cm)."""
@@ -178,7 +207,7 @@ def register_tools(fusion_mcp):
     # Sketch management
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def finish_sketch() -> str:
         """Exit sketch editing mode. Must be called after drawing and before extrude."""
         try:
@@ -198,7 +227,7 @@ def register_tools(fusion_mcp):
     # 3D operations — Phase 1
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def extrude(distance: float, profile_index: int = 0) -> str:
         """Extrude the most recent sketch profile into a 3D body.
         Distance in cm (positive = forward, negative = backward).
@@ -241,7 +270,7 @@ def register_tools(fusion_mcp):
     # Inspection — Phase 1
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def get_design_info() -> str:
         """Get information about the active design: name, body count,
         sketch count, and component count."""
@@ -264,7 +293,7 @@ def register_tools(fusion_mcp):
     # 3D operations — Phase 2
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def revolve(angle: float, axis: str = "Y", profile_index: int = 0) -> str:
         """Revolve the most recent sketch profile around an axis to create a 3D body.
         angle: rotation in degrees (360 = full revolution).
@@ -317,7 +346,7 @@ def register_tools(fusion_mcp):
     # Edge/face modifications — Phase 2
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def fillet(radius: float, edge_indices: str = "", body_index: int = -1) -> str:
         """Round (fillet) edges on a body.
         radius: fillet radius in cm.
@@ -352,7 +381,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error applying fillet: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def chamfer(distance: float, edge_indices: str = "", body_index: int = -1) -> str:
         """Bevel (chamfer) edges on a body.
         distance: chamfer distance in cm.
@@ -387,7 +416,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error applying chamfer: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def shell(thickness: float, face_indices: str = "", body_index: int = -1) -> str:
         """Hollow out a body, leaving walls of the given thickness.
         thickness: wall thickness in cm.
@@ -419,7 +448,7 @@ def register_tools(fusion_mcp):
     # Inspection — Phase 2
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def get_body_info(body_index: int = -1) -> str:
         """Get edge and face information for a body. Use this before fillet/chamfer/shell
         to find the right indices. body_index: -1 = last body."""
@@ -464,7 +493,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error getting body info: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def measure(body_index: int = -1) -> str:
         """Measure a body: volume, surface area, and bounding box dimensions.
         body_index: -1 = last body."""
@@ -498,7 +527,7 @@ def register_tools(fusion_mcp):
     # Sketch drawing — Phase 3
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def draw_arc(center_x: float, center_y: float,
                  start_x: float, start_y: float,
                  end_x: float, end_y: float) -> str:
@@ -520,7 +549,7 @@ def register_tools(fusion_mcp):
     # Utility — Phase 3
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def undo(count: int = 1) -> str:
         """Undo the last operation(s) in the design by rolling back the timeline."""
         try:
@@ -539,7 +568,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error undoing: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def delete_body(body_index: int = -1) -> str:
         """Delete a body from the design. body_index: -1 = last body."""
         try:
@@ -553,7 +582,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error deleting body: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def delete_sketch(sketch_index: int = -1) -> str:
         """Delete a sketch from the design. sketch_index: -1 = last sketch.
         WARNING: Cannot delete sketches that have dependent features (e.g. extrudes)."""
@@ -583,7 +612,7 @@ def register_tools(fusion_mcp):
     # Export — Phase 3
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def export_stl(filepath: str) -> str:
         """Export the design to STL format (for 3D printing).
         filepath: output file path (e.g. '~/Desktop/part.stl')."""
@@ -607,7 +636,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error exporting STL: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def export_step(filepath: str) -> str:
         """Export the design to STEP format (CAD standard interchange).
         filepath: output file path (e.g. '~/Desktop/part.step')."""
@@ -631,7 +660,7 @@ def register_tools(fusion_mcp):
     # Phase A: Boolean Operations + List Bodies
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def list_bodies() -> str:
         """List all bodies in the design with names, indices, and bounding boxes."""
         try:
@@ -654,7 +683,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error listing bodies: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def combine(target_body_index: int, tool_body_indices: str, operation: str = "cut", keep_tools: bool = False) -> str:
         """Boolean operation on bodies: cut (subtract), join (merge), or intersect.
         target_body_index: body to modify. tool_body_indices: comma-separated indices of tool bodies.
@@ -695,7 +724,7 @@ def register_tools(fusion_mcp):
     # Phase B: Sketch on Face + Offset Planes
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def create_offset_plane(plane: str, offset: float) -> str:
         """Create a construction plane offset from a standard plane.
         plane: 'XY', 'XZ', or 'YZ'. offset: distance in cm.
@@ -722,7 +751,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error creating offset plane: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def create_sketch_on_face(body_index: int, face_index: int) -> str:
         """Create a new sketch on a face of an existing body.
         Use get_body_info to find face indices by centroid/normal.
@@ -751,7 +780,7 @@ def register_tools(fusion_mcp):
     # Phase C: Body Movement & Interference (works in Part Design mode)
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def move_body(x: float = 0.0, y: float = 0.0, z: float = 0.0,
                   body_index: int = -1) -> str:
         """Move a body by an offset (translation).
@@ -777,7 +806,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error moving body: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def rotate_body(angle: float, axis: str = "Z", body_index: int = -1,
                     origin_x: float = 0.0, origin_y: float = 0.0, origin_z: float = 0.0) -> str:
         """Rotate a body around an axis.
@@ -814,7 +843,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error rotating body: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def check_interference() -> str:
         """Check for bounding box collisions between all bodies.
         Returns pairs of bodies whose bounding boxes overlap with overlap volume."""
@@ -864,7 +893,7 @@ def register_tools(fusion_mcp):
     # Phase D: Patterns & Mirror
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def pattern_rectangular(x_count: int, x_spacing: float,
                             y_count: int = 1, y_spacing: float = 0.0,
                             body_index: int = -1) -> str:
@@ -898,7 +927,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error creating rectangular pattern: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def pattern_circular(count: int, angle: float = 360.0, axis: str = "Z",
                          body_index: int = -1) -> str:
         """Create a circular (radial) pattern of a body.
@@ -933,7 +962,7 @@ def register_tools(fusion_mcp):
         except Exception as e:
             return f"Error creating circular pattern: {str(e)}"
 
-    @fusion_mcp.tool()
+    @tool()
     def mirror(plane: str = "YZ", body_index: int = -1) -> str:
         """Mirror a body across a construction plane.
         plane: 'XY', 'XZ', or 'YZ'. body_index: -1 = last body."""
@@ -966,7 +995,7 @@ def register_tools(fusion_mcp):
     # View
     # ------------------------------------------------------------------
 
-    @fusion_mcp.tool()
+    @tool()
     def fit_view() -> str:
         """Frame all geometry in the viewport."""
         try:

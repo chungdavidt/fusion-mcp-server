@@ -1,6 +1,6 @@
 {
   "status": "running",
-  "started_at": "Sat Mar 21 02:20:04 2026",
+  "started_at": "Sat Mar 21 10:14:14 2026",
   "server_url": "http://127.0.0.1:3000/sse",
   "fusion_version": "2701.1.27",
   "addin_root": "/Users/dtc32/Library/CloudStorage/OneDrive-DukeUniversity/Documents/Personal/Coding Projects/claude-fusion/fusion-mcp-server/MCPserve",
