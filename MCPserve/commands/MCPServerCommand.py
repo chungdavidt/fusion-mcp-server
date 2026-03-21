@@ -193,7 +193,8 @@ def run_mcp_server():
                 return {"error": str(e) + "\n" + traceback.format_exc()}
 
         print("Registering tools...")
-        # Define tools
+
+        # message_box stays here — it needs the UI-thread command mechanism
         @fusion_mcp.tool()
         def message_box(message: str) -> str:
             """Display a message box in Fusion 360."""
@@ -205,87 +206,9 @@ def run_mcp_server():
             except Exception as e:
                 return f"Error displaying message: {str(e)}"
 
-        @fusion_mcp.tool()
-        def create_new_sketch(plane_name: str) -> str:
-            """Create a new sketch on the specified plane."""
-            try:
-                doc = app.activeDocument
-                if not doc:
-                    return "No active document"
-
-                design_product = doc.products.itemByProductType('DesignProductType')
-                if not design_product:
-                    return "Active document is not a design document"
-
-                design = adsk.fusion.Design.cast(design_product)
-                if not design:
-                    return "Failed to get design from document"
-
-                root_comp = design.rootComponent
-
-                sketch_plane = None
-                if plane_name.upper() == "XY":
-                    sketch_plane = root_comp.xYConstructionPlane
-                elif plane_name.upper() == "YZ":
-                    sketch_plane = root_comp.yZConstructionPlane
-                elif plane_name.upper() == "XZ":
-                    sketch_plane = root_comp.xZConstructionPlane
-                else:
-                    construction_planes = root_comp.constructionPlanes
-                    for i in range(construction_planes.count):
-                        plane = construction_planes.item(i)
-                        if plane.name == plane_name:
-                            sketch_plane = plane
-                            break
-
-                if not sketch_plane:
-                    return f"Could not find plane: {plane_name}"
-
-                sketches = root_comp.sketches
-                sketch = sketches.add(sketch_plane)
-                sketch.name = f"Sketch_MCP_{int(time.time()) % 10000}"
-
-                return f"Sketch created successfully: {sketch.name}"
-            except Exception as e:
-                error_msg = f"Error creating sketch: {str(e)}"
-                print(error_msg)
-                print(traceback.format_exc())
-                return error_msg
-
-        @fusion_mcp.tool()
-        def create_parameter(name: str, expression: str, unit: str, comment: str = "") -> str:
-            """Create a new parameter in the active design."""
-            try:
-                doc = app.activeDocument
-                if not doc:
-                    return "No active document"
-
-                design_product = doc.products.itemByProductType('DesignProductType')
-                if not design_product:
-                    return "Active document is not a design document"
-
-                design = adsk.fusion.Design.cast(design_product)
-                if not design:
-                    return "Failed to get design from document"
-
-                try:
-                    param = design.userParameters.add(name, adsk.core.ValueInput.createByString(expression), unit, comment)
-                    return f"Parameter created successfully: {param.name} = {param.expression}"
-                except Exception as e:
-                    existing_param = design.userParameters.itemByName(name)
-                    if existing_param:
-                        existing_param.expression = expression
-                        existing_param.unit = unit
-                        if comment:
-                            existing_param.comment = comment
-                        return f"Parameter updated: {existing_param.name} = {existing_param.expression}"
-                    else:
-                        raise e
-            except Exception as e:
-                error_msg = f"Error creating parameter: {str(e)}"
-                print(error_msg)
-                print(traceback.format_exc())
-                return error_msg
+        # Register all other tools from tools.py
+        from .tools import register_tools
+        register_tools(fusion_mcp)
 
         print("Registering prompts...")
         # Define prompts
@@ -341,7 +264,26 @@ def run_mcp_server():
                 "available_tools": [
                     "message_box",
                     "create_new_sketch",
-                    "create_parameter"
+                    "create_parameter",
+                    "draw_rectangle",
+                    "draw_circle",
+                    "draw_line",
+                    "finish_sketch",
+                    "extrude",
+                    "revolve",
+                    "fillet",
+                    "chamfer",
+                    "shell",
+                    "get_design_info",
+                    "get_body_info",
+                    "measure",
+                    "draw_arc",
+                    "undo",
+                    "delete_body",
+                    "delete_sketch",
+                    "export_stl",
+                    "export_step",
+                    "fit_view"
                 ],
                 "available_prompts": [
                     "create_sketch_prompt",

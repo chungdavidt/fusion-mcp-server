@@ -1,8 +1,8 @@
 {
   "status": "running",
-  "started_at": "Wed Mar 18 02:03:39 2026",
+  "started_at": "Sat Mar 21 01:25:56 2026",
   "server_url": "http://127.0.0.1:3000/sse",
-  "fusion_version": "2605.1.39",
+  "fusion_version": "2701.1.27",
   "addin_root": "/Users/dtc32/Library/CloudStorage/OneDrive-DukeUniversity/Documents/Personal/Coding Projects/claude-fusion/fusion-mcp-server/MCPserve",
   "available_resources": [
     "fusion://active-document-info",
@@ -12,7 +12,26 @@
   "available_tools": [
     "message_box",
     "create_new_sketch",
-    "create_parameter"
+    "create_parameter",
+    "draw_rectangle",
+    "draw_circle",
+    "draw_line",
+    "finish_sketch",
+    "extrude",
+    "revolve",
+    "fillet",
+    "chamfer",
+    "shell",
+    "get_design_info",
+    "get_body_info",
+    "measure",
+    "draw_arc",
+    "undo",
+    "delete_body",
+    "delete_sketch",
+    "export_stl",
+    "export_step",
+    "fit_view"
   ],
   "available_prompts": [
     "create_sketch_prompt",

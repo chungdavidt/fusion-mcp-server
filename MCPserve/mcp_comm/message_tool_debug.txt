@@ -1,0 +1,2 @@
+Message box tool called with: Hello from Claude! at Sat Mar 21 00:55:00 2026
+Direct show result: True at Sat Mar 21 00:55:02 2026
