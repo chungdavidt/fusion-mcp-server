@@ -514,12 +514,20 @@ def register_tools(fusion_mcp):
 
     @fusion_mcp.tool()
     def undo(count: int = 1) -> str:
-        """Undo the last operation(s) in the design."""
+        """Undo the last operation(s) in the design by rolling back the timeline."""
         try:
-            app = adsk.core.Application.get()
-            for i in range(count):
-                app.executeTextCommand('Commands.Undo')
-            return f"Undid {count} operation(s)"
+            design, _ = _get_design_context()
+            timeline = design.timeline
+            if timeline.count == 0:
+                return "Nothing to undo — timeline is empty"
+            current = timeline.markerPosition
+            steps = min(count, current)
+            if steps == 0:
+                return "Already at the beginning of the timeline"
+            timeline.markerPosition = current - steps
+            return f"Rolled back {steps} operation(s) — timeline at position {current - steps}/{timeline.count}"
+        except ValueError as e:
+            return str(e)
         except Exception as e:
             return f"Error undoing: {str(e)}"
 
@@ -539,7 +547,8 @@ def register_tools(fusion_mcp):
 
     @fusion_mcp.tool()
     def delete_sketch(sketch_index: int = -1) -> str:
-        """Delete a sketch from the design. sketch_index: -1 = last sketch."""
+        """Delete a sketch from the design. sketch_index: -1 = last sketch.
+        WARNING: Cannot delete sketches that have dependent features (e.g. extrudes)."""
         try:
             _, root_comp = _get_design_context()
             count = root_comp.sketches.count
@@ -551,7 +560,11 @@ def register_tools(fusion_mcp):
                 return f"sketch_index {sketch_index} out of range (0-{count - 1})"
             sketch = root_comp.sketches.item(sketch_index)
             sketch_name = sketch.name
-            sketch.deleteMe()
+            if not sketch.deleteMe():
+                return (
+                    f"Cannot delete sketch '{sketch_name}' — it may have "
+                    f"dependent features. Delete those features first or use undo."
+                )
             return f"Deleted sketch: {sketch_name}"
         except ValueError as e:
             return str(e)
