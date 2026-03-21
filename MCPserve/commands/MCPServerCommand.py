@@ -207,8 +207,21 @@ def run_mcp_server():
                 return f"Error displaying message: {str(e)}"
 
         # Register all other tools from tools.py
-        from .tools import register_tools
-        register_tools(fusion_mcp)
+        from . import tools as tools_module
+        tools_module.register_tools(fusion_mcp)
+
+        # Hot-reload tool — reloads tools.py without restarting the add-in
+        @fusion_mcp.tool()
+        def reload_tools() -> str:
+            """Hot-reload tools.py without restarting the add-in or reconnecting MCP.
+            Call this after editing tools.py to pick up changes immediately."""
+            try:
+                import importlib
+                importlib.reload(tools_module)
+                tools_module.register_tools(fusion_mcp)
+                return "Tools reloaded successfully"
+            except Exception as e:
+                return f"Error reloading tools: {str(e)}\n{traceback.format_exc()}"
 
         print("Registering prompts...")
         # Define prompts
@@ -268,16 +281,26 @@ def run_mcp_server():
                     "draw_rectangle",
                     "draw_circle",
                     "draw_line",
+                    "draw_arc",
                     "finish_sketch",
                     "extrude",
                     "revolve",
                     "fillet",
                     "chamfer",
                     "shell",
+                    "list_bodies",
+                    "combine",
+                    "create_offset_plane",
+                    "create_sketch_on_face",
+                    "move_body",
+                    "rotate_body",
+                    "check_interference",
+                    "pattern_rectangular",
+                    "pattern_circular",
+                    "mirror",
                     "get_design_info",
                     "get_body_info",
                     "measure",
-                    "draw_arc",
                     "undo",
                     "delete_body",
                     "delete_sketch",

@@ -430,18 +430,26 @@ def register_tools(fusion_mcp):
             edges_info = []
             for i in range(body.edges.count):
                 edge = body.edges.item(i)
-                edges_info.append({
-                    "index": i,
-                    "length_cm": round(edge.length, 4),
-                })
+                entry = {"index": i, "length_cm": round(edge.length, 4)}
+                sv = edge.startVertex
+                ev = edge.endVertex
+                if sv and ev:
+                    entry["start"] = {"x": round(sv.geometry.x, 4), "y": round(sv.geometry.y, 4), "z": round(sv.geometry.z, 4)}
+                    entry["end"] = {"x": round(ev.geometry.x, 4), "y": round(ev.geometry.y, 4), "z": round(ev.geometry.z, 4)}
+                edges_info.append(entry)
 
             faces_info = []
             for i in range(body.faces.count):
                 face = body.faces.item(i)
-                faces_info.append({
-                    "index": i,
-                    "area_cm2": round(face.area, 4),
-                })
+                entry = {"index": i, "area_cm2": round(face.area, 4)}
+                try:
+                    centroid = face.centroid
+                    entry["centroid"] = {"x": round(centroid.x, 4), "y": round(centroid.y, 4), "z": round(centroid.z, 4)}
+                    _, normal = face.evaluator.getNormalAtPoint(centroid)
+                    entry["normal"] = {"x": round(normal.x, 4), "y": round(normal.y, 4), "z": round(normal.z, 4)}
+                except Exception:
+                    pass
+                faces_info.append(entry)
 
             info = {
                 "body_name": body.name,
@@ -618,6 +626,341 @@ def register_tools(fusion_mcp):
             return str(e)
         except Exception as e:
             return f"Error exporting STEP: {str(e)}"
+
+    # ------------------------------------------------------------------
+    # Phase A: Boolean Operations + List Bodies
+    # ------------------------------------------------------------------
+
+    @fusion_mcp.tool()
+    def list_bodies() -> str:
+        """List all bodies in the design with names, indices, and bounding boxes."""
+        try:
+            _, root_comp = _get_design_context()
+            bodies = []
+            for i in range(root_comp.bRepBodies.count):
+                body = root_comp.bRepBodies.item(i)
+                bb = body.boundingBox
+                bodies.append({
+                    "index": i,
+                    "name": body.name,
+                    "bounding_box": {
+                        "min": {"x": round(bb.minPoint.x, 4), "y": round(bb.minPoint.y, 4), "z": round(bb.minPoint.z, 4)},
+                        "max": {"x": round(bb.maxPoint.x, 4), "y": round(bb.maxPoint.y, 4), "z": round(bb.maxPoint.z, 4)},
+                    },
+                })
+            return json.dumps({"body_count": len(bodies), "bodies": bodies}, indent=2)
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error listing bodies: {str(e)}"
+
+    @fusion_mcp.tool()
+    def combine(target_body_index: int, tool_body_indices: str, operation: str = "cut", keep_tools: bool = False) -> str:
+        """Boolean operation on bodies: cut (subtract), join (merge), or intersect.
+        target_body_index: body to modify. tool_body_indices: comma-separated indices of tool bodies.
+        operation: 'cut', 'join', or 'intersect'. keep_tools: keep tool bodies after operation.
+        Use list_bodies to find indices. All dimensions in cm."""
+        try:
+            _, root_comp = _get_design_context()
+            target = _get_body(root_comp, target_body_index)
+
+            indices = [int(i.strip()) for i in tool_body_indices.split(",")]
+            tool_bodies = adsk.core.ObjectCollection.create()
+            for idx in indices:
+                if idx == target_body_index:
+                    return f"Tool body index {idx} cannot be the same as target"
+                tool_bodies.add(_get_body(root_comp, idx))
+
+            op_map = {
+                "cut": adsk.fusion.FeatureOperations.CutFeatureOperation,
+                "join": adsk.fusion.FeatureOperations.JoinFeatureOperation,
+                "intersect": adsk.fusion.FeatureOperations.IntersectFeatureOperation,
+            }
+            op_enum = op_map.get(operation.lower())
+            if not op_enum:
+                return f"Unknown operation: '{operation}'. Use 'cut', 'join', or 'intersect'."
+
+            combine_features = root_comp.features.combineFeatures
+            combine_input = combine_features.createInput(target, tool_bodies)
+            combine_input.operation = op_enum
+            combine_input.isKeepToolBodies = keep_tools
+            feature = combine_features.add(combine_input)
+            return f"Combined ({operation}) — feature: {feature.name}, remaining bodies: {root_comp.bRepBodies.count}"
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error combining: {str(e)}"
+
+    # ------------------------------------------------------------------
+    # Phase B: Sketch on Face + Offset Planes
+    # ------------------------------------------------------------------
+
+    @fusion_mcp.tool()
+    def create_offset_plane(plane: str, offset: float) -> str:
+        """Create a construction plane offset from a standard plane.
+        plane: 'XY', 'XZ', or 'YZ'. offset: distance in cm.
+        Use the returned name with create_new_sketch."""
+        try:
+            _, root_comp = _get_design_context()
+            plane_map = {
+                "XY": root_comp.xYConstructionPlane,
+                "XZ": root_comp.xZConstructionPlane,
+                "YZ": root_comp.yZConstructionPlane,
+            }
+            base_plane = plane_map.get(plane.upper())
+            if not base_plane:
+                return f"Unknown plane: {plane}. Use 'XY', 'XZ', or 'YZ'."
+
+            planes = root_comp.constructionPlanes
+            plane_input = planes.createInput()
+            plane_input.setByOffset(base_plane, adsk.core.ValueInput.createByReal(offset))
+            new_plane = planes.add(plane_input)
+            new_plane.name = f"Offset_{plane}_{offset}cm"
+            return f"Construction plane created: '{new_plane.name}'. Use create_new_sketch('{new_plane.name}') to sketch on it."
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error creating offset plane: {str(e)}"
+
+    @fusion_mcp.tool()
+    def create_sketch_on_face(body_index: int, face_index: int) -> str:
+        """Create a new sketch on a face of an existing body.
+        Use get_body_info to find face indices by centroid/normal.
+        Face must be planar (flat). Sketch coordinates are in the face's local 2D system."""
+        try:
+            _, root_comp = _get_design_context()
+            body = _get_body(root_comp, body_index)
+
+            if face_index < 0 or face_index >= body.faces.count:
+                return f"face_index {face_index} out of range (0-{body.faces.count - 1})"
+            face = body.faces.item(face_index)
+
+            sketch = root_comp.sketches.add(face)
+            sketch.name = f"FaceSketch_MCP_{int(time.time()) % 10000}"
+            origin = sketch.origin
+            return (
+                f"Sketch created on face {face_index}: {sketch.name}. "
+                f"Origin at ({round(origin.x, 4)}, {round(origin.y, 4)}, {round(origin.z, 4)}) cm."
+            )
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error creating sketch on face: {str(e)}"
+
+    # ------------------------------------------------------------------
+    # Phase C: Body Movement & Interference (works in Part Design mode)
+    # ------------------------------------------------------------------
+
+    @fusion_mcp.tool()
+    def move_body(x: float = 0.0, y: float = 0.0, z: float = 0.0,
+                  body_index: int = -1) -> str:
+        """Move a body by an offset (translation).
+        x, y, z: offset in cm. body_index: -1 = last body."""
+        try:
+            _, root_comp = _get_design_context()
+            body = _get_body(root_comp, None if body_index == -1 else body_index)
+
+            bodies = adsk.core.ObjectCollection.create()
+            bodies.add(body)
+
+            transform = adsk.core.Matrix3D.create()
+            transform.translation = adsk.core.Vector3D.create(x, y, z)
+
+            move_feats = root_comp.features.moveFeatures
+            move_input = move_feats.createInput2(bodies)
+            move_input.defineAsFreeMove(transform)
+            feature = move_feats.add(move_input)
+
+            return f"Moved '{body.name}' by ({x}, {y}, {z}) cm — feature: {feature.name}"
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error moving body: {str(e)}"
+
+    @fusion_mcp.tool()
+    def rotate_body(angle: float, axis: str = "Z", body_index: int = -1,
+                    origin_x: float = 0.0, origin_y: float = 0.0, origin_z: float = 0.0) -> str:
+        """Rotate a body around an axis.
+        angle: degrees. axis: 'X', 'Y', or 'Z'. body_index: -1 = last body.
+        origin_x/y/z: rotation center in cm (default = world origin)."""
+        try:
+            _, root_comp = _get_design_context()
+            body = _get_body(root_comp, None if body_index == -1 else body_index)
+
+            axis_map = {
+                "X": adsk.core.Vector3D.create(1, 0, 0),
+                "Y": adsk.core.Vector3D.create(0, 1, 0),
+                "Z": adsk.core.Vector3D.create(0, 0, 1),
+            }
+            axis_vec = axis_map.get(axis.upper())
+            if not axis_vec:
+                return f"Unknown axis: {axis}. Use 'X', 'Y', or 'Z'."
+
+            bodies = adsk.core.ObjectCollection.create()
+            bodies.add(body)
+
+            transform = adsk.core.Matrix3D.create()
+            origin = adsk.core.Point3D.create(origin_x, origin_y, origin_z)
+            transform.setToRotation(math.radians(angle), axis_vec, origin)
+
+            move_feats = root_comp.features.moveFeatures
+            move_input = move_feats.createInput2(bodies)
+            move_input.defineAsFreeMove(transform)
+            feature = move_feats.add(move_input)
+
+            return f"Rotated '{body.name}' by {angle}° around {axis} — feature: {feature.name}"
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error rotating body: {str(e)}"
+
+    @fusion_mcp.tool()
+    def check_interference() -> str:
+        """Check for bounding box collisions between all bodies.
+        Returns pairs of bodies whose bounding boxes overlap with overlap volume."""
+        try:
+            _, root_comp = _get_design_context()
+            count = root_comp.bRepBodies.count
+            if count < 2:
+                return "Need at least 2 bodies to check interference"
+
+            boxes = []
+            for i in range(count):
+                body = root_comp.bRepBodies.item(i)
+                bb = body.boundingBox
+                if bb:
+                    boxes.append((i, body.name, bb))
+
+            collisions = []
+            for a in range(len(boxes)):
+                for b in range(a + 1, len(boxes)):
+                    idx_a, name_a, bb_a = boxes[a]
+                    idx_b, name_b, bb_b = boxes[b]
+                    if (bb_a.minPoint.x <= bb_b.maxPoint.x and bb_a.maxPoint.x >= bb_b.minPoint.x and
+                        bb_a.minPoint.y <= bb_b.maxPoint.y and bb_a.maxPoint.y >= bb_b.minPoint.y and
+                        bb_a.minPoint.z <= bb_b.maxPoint.z and bb_a.maxPoint.z >= bb_b.minPoint.z):
+                        ox = max(0, min(bb_a.maxPoint.x, bb_b.maxPoint.x) - max(bb_a.minPoint.x, bb_b.minPoint.x))
+                        oy = max(0, min(bb_a.maxPoint.y, bb_b.maxPoint.y) - max(bb_a.minPoint.y, bb_b.minPoint.y))
+                        oz = max(0, min(bb_a.maxPoint.z, bb_b.maxPoint.z) - max(bb_a.minPoint.z, bb_b.minPoint.z))
+                        collisions.append({
+                            "body_a": {"index": idx_a, "name": name_a},
+                            "body_b": {"index": idx_b, "name": name_b},
+                            "overlap_volume_cm3": round(ox * oy * oz, 6),
+                        })
+
+            result = {
+                "bodies_checked": count,
+                "collisions_found": len(collisions),
+                "status": f"WARNING: {len(collisions)} collision(s)" if collisions else "No interference detected",
+                "collisions": collisions,
+            }
+            return json.dumps(result, indent=2)
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error checking interference: {str(e)}"
+
+    # ------------------------------------------------------------------
+    # Phase D: Patterns & Mirror
+    # ------------------------------------------------------------------
+
+    @fusion_mcp.tool()
+    def pattern_rectangular(x_count: int, x_spacing: float,
+                            y_count: int = 1, y_spacing: float = 0.0,
+                            body_index: int = -1) -> str:
+        """Create a rectangular (grid) pattern of a body.
+        x_count/y_count: instances including original. x_spacing/y_spacing in cm.
+        body_index: -1 = last body."""
+        try:
+            _, root_comp = _get_design_context()
+            body = _get_body(root_comp, None if body_index == -1 else body_index)
+
+            bodies = adsk.core.ObjectCollection.create()
+            bodies.add(body)
+
+            rect_patterns = root_comp.features.rectangularPatternFeatures
+            pattern_input = rect_patterns.createInput(
+                bodies, root_comp.xConstructionAxis,
+                adsk.core.ValueInput.createByReal(x_count),
+                adsk.core.ValueInput.createByReal(x_spacing),
+                adsk.fusion.PatternDistanceType.SpacingPatternDistanceType
+            )
+
+            if y_count > 1:
+                pattern_input.directionTwoEntity = root_comp.yConstructionAxis
+                pattern_input.quantityTwo = adsk.core.ValueInput.createByReal(y_count)
+                pattern_input.distanceTwo = adsk.core.ValueInput.createByReal(y_spacing)
+
+            feature = rect_patterns.add(pattern_input)
+            return f"Rectangular pattern: {x_count}x{y_count} = {x_count * y_count} instances — feature: {feature.name}"
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error creating rectangular pattern: {str(e)}"
+
+    @fusion_mcp.tool()
+    def pattern_circular(count: int, angle: float = 360.0, axis: str = "Z",
+                         body_index: int = -1) -> str:
+        """Create a circular (radial) pattern of a body.
+        count: total instances including original. angle: total span in degrees.
+        axis: 'X', 'Y', or 'Z'. body_index: -1 = last body."""
+        try:
+            _, root_comp = _get_design_context()
+            body = _get_body(root_comp, None if body_index == -1 else body_index)
+
+            axis_map = {
+                "X": root_comp.xConstructionAxis,
+                "Y": root_comp.yConstructionAxis,
+                "Z": root_comp.zConstructionAxis,
+            }
+            pattern_axis = axis_map.get(axis.upper())
+            if not pattern_axis:
+                return f"Unknown axis: {axis}. Use 'X', 'Y', or 'Z'."
+
+            bodies = adsk.core.ObjectCollection.create()
+            bodies.add(body)
+
+            circ_patterns = root_comp.features.circularPatternFeatures
+            pattern_input = circ_patterns.createInput(bodies, pattern_axis)
+            pattern_input.quantity = adsk.core.ValueInput.createByReal(count)
+            pattern_input.totalAngle = adsk.core.ValueInput.createByReal(math.radians(angle))
+            pattern_input.isSymmetric = False
+
+            feature = circ_patterns.add(pattern_input)
+            return f"Circular pattern: {count} instances over {angle}° around {axis} — feature: {feature.name}"
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error creating circular pattern: {str(e)}"
+
+    @fusion_mcp.tool()
+    def mirror(plane: str = "YZ", body_index: int = -1) -> str:
+        """Mirror a body across a construction plane.
+        plane: 'XY', 'XZ', or 'YZ'. body_index: -1 = last body."""
+        try:
+            _, root_comp = _get_design_context()
+            body = _get_body(root_comp, None if body_index == -1 else body_index)
+
+            plane_map = {
+                "XY": root_comp.xYConstructionPlane,
+                "XZ": root_comp.xZConstructionPlane,
+                "YZ": root_comp.yZConstructionPlane,
+            }
+            mirror_plane = plane_map.get(plane.upper())
+            if not mirror_plane:
+                return f"Unknown plane: {plane}. Use 'XY', 'XZ', or 'YZ'."
+
+            bodies = adsk.core.ObjectCollection.create()
+            bodies.add(body)
+
+            mirror_features = root_comp.features.mirrorFeatures
+            mirror_input = mirror_features.createInput(bodies, mirror_plane)
+            feature = mirror_features.add(mirror_input)
+            return f"Mirrored across {plane} — feature: {feature.name}, total bodies: {root_comp.bRepBodies.count}"
+        except ValueError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error mirroring: {str(e)}"
 
     # ------------------------------------------------------------------
     # View
