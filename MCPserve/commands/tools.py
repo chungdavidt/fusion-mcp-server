@@ -613,24 +613,23 @@ def register_tools(fusion_mcp):
     # ------------------------------------------------------------------
 
     @tool()
-    def export_stl(filepath: str) -> str:
-        """Export the design to STL format (for 3D printing).
-        filepath: output file path (e.g. '~/Desktop/part.stl')."""
+    def export_stl(filepath: str, body_index: int = -1) -> str:
+        """Export a body to STL format (for 3D printing).
+        filepath: output file path (e.g. '~/Desktop/part.stl').
+        body_index: which body to export (-1 = last). Use list_bodies to find indices."""
         try:
             import os
             design, root_comp = _get_design_context()
-            if root_comp.bRepBodies.count == 0:
-                return "No bodies to export"
+            body = _get_body(root_comp, None if body_index == -1 else body_index)
 
             filepath = os.path.expanduser(filepath)
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
             export_mgr = design.exportManager
-            body = root_comp.bRepBodies.item(0)
             stl_options = export_mgr.createSTLExportOptions(body, filepath)
             stl_options.meshRefinement = adsk.fusion.MeshRefinementSettings.MeshRefinementMedium
             export_mgr.execute(stl_options)
-            return f"Exported STL to: {filepath}"
+            return f"Exported '{body.name}' as STL to: {filepath}"
         except ValueError as e:
             return str(e)
         except Exception as e:
