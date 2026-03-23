@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# MCP runtime artifacts
+MCPserve/mcp_comm/
+MCPserve/mcp_server_ready.txt

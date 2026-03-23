@@ -705,7 +705,7 @@ def register_tools(fusion_mcp):
                 "intersect": adsk.fusion.FeatureOperations.IntersectFeatureOperation,
             }
             op_enum = op_map.get(operation.lower())
-            if not op_enum:
+            if op_enum is None:
                 return f"Unknown operation: '{operation}'. Use 'cut', 'join', or 'intersect'."
 
             combine_features = root_comp.features.combineFeatures
